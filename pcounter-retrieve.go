@@ -33,6 +33,7 @@ var (
 	sendfile = flag.String("sendfile", "", "Sending file name")
 	dir      = flag.String("dir", "", "Directory of data storage")
 	speed    = flag.Float64("speed", 1.0, "Speed of sending packets")
+	multi    = flag.Int("multi", 1, "Specify sending multiply messages")
 	mu       sync.Mutex
 	version  = "0.01"
 	baseDir  = "store"
@@ -142,7 +143,10 @@ func sendingPCounterFile(client *sxutil.SXServiceClient) {
 	last := time.Now()
 	var pc *pcounter.PCounter = nil
 	evts := make([]*pcounter.PEvent, 0, 1)
-	for scanner.Scan() {
+	pcs  := make([]*pcounter.PCounter, 0, 1)
+	mcount := 0 // count multiple packets
+
+	for scanner.Scan() { // read one line.
 		dt := scanner.Text()
 		token := strings.Split(dt, ",")
 		switch token[3] {
@@ -166,19 +170,45 @@ func sendingPCounterFile(client *sxutil.SXServiceClient) {
 		default: // this might come first
 			if pc != nil {
 				//				sendPacket(pc)
-				if len(evts) > 0 {
-					pc.Data = evts
-					out, _ := proto.Marshal(pc)
-					cont := pb.Content{Entity: out}
-					smo := sxutil.SupplyOpts{
-						Name:  "PCounter",
-						Cdata: &cont,
-					}
-					_, nerr := client.NotifySupply(&smo)
-					if nerr != nil {
-						log.Printf("Send Fail!\n", nerr)
-					} else {
+				if len(evts) > 0  {
+					if *multi == 1{  // sending each packets
+						pc.Data = evts
+						out, _ := proto.Marshal(pc)
+						cont := pb.Content{Entity: out}
+						smo := sxutil.SupplyOpts{
+							Name:  "PCounter",
+							Cdata: &cont,
+						}
+						_, nerr := client.NotifySupply(&smo)
+						if nerr != nil {
+							log.Printf("Send Fail!\n", nerr)
+						} else {
 //						log.Printf("Sent OK! %#v\n", pc)
+						}
+					}else{ // sending multiple packets
+						mcount ++;
+						pc.Data = evts
+						pcs = append(pcs, pc)
+						if mcount > *multi { // now sending!
+							pcss := &pcounter.PCounters{
+								Pcs: pcs,
+							}							
+							out, _ := proto.Marshal(pcss)
+							cont := pb.Content{Entity: out}
+							smo := sxutil.SupplyOpts{
+								Name:  "PCounterMulti",
+								Cdata: &cont,
+							}
+							_, nerr := client.NotifySupply(&smo)
+							if nerr != nil {
+								log.Printf("Send Fail!\n", nerr)
+							} else {
+								log.Printf("Sent OK! %d bytes\n", len(out))
+							}
+
+							pcs = make([]*pcounter.PCounter, 0, 1)
+							mcount = 0
+						}
 					}
 				}
 			}
@@ -201,6 +231,7 @@ func sendingPCounterFile(client *sxutil.SXServiceClient) {
 			tp, _ := ptypes.TimestampProto(tm)
 			pc.Ts = tp
 			pc.Hostname = token[1]
+			pc.DeviceId = token[2]
 			pc.Mac = token[2]
 			pc.Ip = token[3]
 			pc.IpVpn = token[4]

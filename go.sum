@@ -21,6 +21,8 @@ github.com/shirou/gopsutil v2.19.11+incompatible h1:lJHR0foqAjI4exXqWsU3DbH7bX1x
 github.com/shirou/gopsutil v2.19.11+incompatible/go.mod h1:5b4v6he4MtMOwMlS0TUMTu2PcXUg8+E1lC7eC3UO/RA=
 github.com/synerex/proto_pcounter v0.0.3 h1:mXOyITS1TzcU5ZNqrYk/dM8DzwIjwUVQrPjzpeQ0yOg=
 github.com/synerex/proto_pcounter v0.0.3/go.mod h1:PN6vV7FFIPOLTMREfwcAh8y6qkU3lj3tro0Q1/nU8TA=
+github.com/synerex/proto_pcounter v0.0.4 h1:iy+8I8Evo2ZTUmVKh54aepvDebdPonj93HSTTxF9eig=
+github.com/synerex/proto_pcounter v0.0.4/go.mod h1:PN6vV7FFIPOLTMREfwcAh8y6qkU3lj3tro0Q1/nU8TA=
 github.com/synerex/synerex_api v0.3.1 h1:fmxQhVaag/OUJELNoBxhebZ5Z23/cgfCNdYGl9XUY3g=
 github.com/synerex/synerex_api v0.3.1/go.mod h1:sVqiujIdRBLEtKGw4pKjNK3SPgK0ymTlLWL8Drf266A=
 github.com/synerex/synerex_nodeapi v0.5.1 h1:jIKKg/7T7WndmWCcCWnDFxMS2Hvw8qk7hzxG/boetYw=
