@@ -150,6 +150,9 @@ func sendingPCounterFile(client *sxutil.SXServiceClient) {
 		dt := scanner.Text()
 		token := strings.Split(dt, ",")
 		switch token[3] {
+		case "alive":
+		case "statusList":
+
 		case "counter":
 			//			fmt.Println(token[0], token[1], token[2], token[3], token[4], token[5], token[6])
 			tm, _ := time.Parse(DateFmt, token[0]) // RFC3339Nano
