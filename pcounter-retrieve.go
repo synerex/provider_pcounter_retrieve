@@ -170,7 +170,8 @@ func sendingPCounterFile(client *sxutil.SXServiceClient) {
 
 		case "dwellTime":
 
-		default: // this might come first
+		default: // this might come first // IP address
+//			log.Printf("%s:%s",token[3], dt)
 			if pc != nil {
 				//				sendPacket(pc)
 				if len(evts) > 0  {
@@ -206,7 +207,7 @@ func sendingPCounterFile(client *sxutil.SXServiceClient) {
 							if nerr != nil {
 								log.Printf("Send Fail!\n", nerr)
 							} else {
-								log.Printf("Sent OK! %d bytes\n", len(out))
+								log.Printf("Sent OK! %d bytes: %s\n", len(out), ptypes.TimestampString(pc.Ts))
 							}
 
 							pcs = make([]*pcounter.PCounter, 0, 1)
@@ -214,6 +215,7 @@ func sendingPCounterFile(client *sxutil.SXServiceClient) {
 						}
 					}
 				}
+
 			}
 			evts = make([]*pcounter.PEvent, 0, 1)
 			pc = &pcounter.PCounter{}
@@ -243,20 +245,42 @@ func sendingPCounterFile(client *sxutil.SXServiceClient) {
 
 	if pc != nil {
 		if len(evts) > 0 {
-			pc.Data = evts
-		}
-		out, _ := proto.Marshal(pc)
-		cont := pb.Content{Entity: out}
-		smo := sxutil.SupplyOpts{
-			Name:  "PCounter",
-			Cdata: &cont,
-		}
-		_, nerr := client.NotifySupply(&smo)
-		if nerr != nil {
-			log.Printf("Send Fail!", nerr)
+			if *multi == 1{  // sending each packets
+				pc.Data = evts
+				out, _ := proto.Marshal(pc)
+				cont := pb.Content{Entity: out}
+				smo := sxutil.SupplyOpts{
+					Name:  "PCounter",
+					Cdata: &cont,
+				}
+				_, nerr := client.NotifySupply(&smo)
+				if nerr != nil {
+					log.Printf("Send Fail!\n", nerr)
+				} else {
+//							log.Printf("Sent OK! %#v\n", pc)
+				}
+			}else{ // sending multiple packets
+				mcount ++;
+				pc.Data = evts
+				pcs = append(pcs, pc)
+				pcss := &pcounter.PCounters{
+					Pcs: pcs,
+				}							
+				out, _ := proto.Marshal(pcss)
+				cont := pb.Content{Entity: out}
+				smo := sxutil.SupplyOpts{
+					Name:  "PCounterMulti",
+					Cdata: &cont,
+				}
+				_, nerr := client.NotifySupply(&smo)
+				if nerr != nil {
+					log.Printf("Send Fail!\n", nerr)
+				} else {
+					log.Printf("Sent Last OK! %d bytes: %s\n", len(out), ptypes.TimestampString(pc.Ts))
+				}
+			}
 		}
 	}
-
 }
 
 func main() {
@@ -276,7 +300,7 @@ func main() {
 	}
 	log.Printf("Connecting SynerexServer at [%s]", srv)
 
-	wg := sync.WaitGroup{} // for syncing other goroutines
+//	wg := sync.WaitGroup{} // for syncing other goroutines
 
 	client := sxutil.GrpcConnectServer(srv)
 
@@ -288,7 +312,7 @@ func main() {
 
 	pc_client := sxutil.NewSXServiceClient(client, pbase.PEOPLE_COUNTER_SVC, "{Client:PcountRetrieve}")
 
-	wg.Add(1)
+//	wg.Add(1)
 	//    log.Print("Subscribe Supply")
 	//    go subscribePCounterSupply(pc_client)
 
@@ -298,6 +322,6 @@ func main() {
 		//		}
 	}
 
-	wg.Wait()
+//	wg.Wait()
 
 }
