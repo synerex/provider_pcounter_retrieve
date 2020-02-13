@@ -209,7 +209,9 @@ func sendingPCounterFile(client *sxutil.SXServiceClient) {
 							} else {
 								log.Printf("Sent OK! %d bytes: %s\n", len(out), ptypes.TimestampString(pc.Ts))
 							}
-
+							if *speed < 0 {
+								time.Sleep(time.Duration(-*speed) *time.Millisecond)
+							}
 							pcs = make([]*pcounter.PCounter, 0, 1)
 							mcount = 0
 						}
@@ -226,7 +228,9 @@ func sendingPCounterFile(client *sxutil.SXServiceClient) {
 			dur := tm.Sub(last)
 //			log.Printf("Sleep %v %v %v",dur, tm, last)
 			if dur.Nanoseconds() > 0 {
-				time.Sleep(time.Duration(float64(dur.Nanoseconds()) / *speed))
+				if *speed > 0 {
+					time.Sleep(time.Duration(float64(dur.Nanoseconds()) / *speed))
+				}
 				last = tm
 			}
 			if dur.Nanoseconds() < 0 {
