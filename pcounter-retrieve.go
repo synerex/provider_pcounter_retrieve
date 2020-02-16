@@ -5,20 +5,24 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io/ioutil"
+	"log"
+	"os"
+	"path"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	pcounter "github.com/synerex/proto_pcounter"
 	api "github.com/synerex/synerex_api"
 	pb "github.com/synerex/synerex_api"
 	pbase "github.com/synerex/synerex_proto"
-	"github.com/synerex/synerex_sxutil"
-	"log"
-	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
-	"sync"
-	"time"
+	sxutil "github.com/synerex/synerex_sxutil"
 )
 
 // datastore provider provides Datastore Service.
@@ -28,17 +32,22 @@ type DataStore interface {
 }
 
 var (
-	nodesrv  = flag.String("nodesrv", "127.0.0.1:9990", "Node ID Server")
-	local    = flag.String("local", "", "Local Synerex Server")
-	sendfile = flag.String("sendfile", "", "Sending file name")
-	dir      = flag.String("dir", "", "Directory of data storage")
-	speed    = flag.Float64("speed", 1.0, "Speed of sending packets")
-	multi    = flag.Int("multi", 1, "Specify sending multiply messages")
-	mu       sync.Mutex
-	version  = "0.01"
-	baseDir  = "store"
-	dataDir  string
-	ds       DataStore
+	nodesrv   = flag.String("nodesrv", "127.0.0.1:9990", "Node ID Server")
+	local     = flag.String("local", "", "Local Synerex Server")
+	sendfile  = flag.String("sendfile", "", "Sending file name") // only one file
+	startDate = flag.String("startDate", "02-07", "Specify Start Date")
+	endDate   = flag.String("endDate", "12-31", "Specify End Date")
+	startTime = flag.String("startTime", "00:00", "Specify Start Time")
+	endTime   = flag.String("endTime", "24:00", "Specify End Time")
+	dir       = flag.String("dir", "", "Directory of data storage") // for all file
+	all       = flag.Bool("all", false, "Send all file in Dir")     // for all file
+	speed     = flag.Float64("speed", 1.0, "Speed of sending packets")
+	multi     = flag.Int("multi", 1, "Specify sending multiply messages")
+	mu        sync.Mutex
+	version   = "0.01"
+	baseDir   = "store"
+	dataDir   string
+	ds        DataStore
 )
 
 func init() {
@@ -120,14 +129,28 @@ func subscribePCounterSupply(client *sxutil.SXServiceClient) {
 	log.Fatal("Error on subscribe")
 }
 
-const DateFmt = "2006-01-02T15:04:05.999Z"
+const dateFmt = "2006-01-02T15:04:05.999Z"
 
 func atoUint(s string) uint32 {
 	r, err := strconv.Atoi(s)
 	if err != nil {
-		log.Print("err",err)
+		log.Print("err", err)
 	}
 	return uint32(r)
+}
+
+func getHourMin(dt string) (hour int, min int) {
+	st := strings.Split(dt, ":")
+	hour, _ = strconv.Atoi(st[0])
+	min, _ = strconv.Atoi(st[1])
+	return hour, min
+}
+
+func getMonthDate(dt string) (month int, date int) {
+	st := strings.Split(dt, "-")
+	month, _ = strconv.Atoi(st[0])
+	date, _ = strconv.Atoi(st[1])
+	return month, date
 }
 
 // sending People Counter File.
@@ -140,22 +163,44 @@ func sendingPCounterFile(client *sxutil.SXServiceClient) {
 	defer fp.Close()
 
 	scanner := bufio.NewScanner(fp) // csv reader
+
 	last := time.Now()
 	var pc *pcounter.PCounter = nil
 	evts := make([]*pcounter.PEvent, 0, 1)
-	pcs  := make([]*pcounter.PCounter, 0, 1)
-	mcount := 0 // count multiple packets
+	pcs := make([]*pcounter.PCounter, 0, 1)
+	mcount := 0      // count multiple packets
+	started := false // start flag
+	stHour, stMin := getHourMin(*startTime)
+	edHour, edMin := getHourMin(*endTime)
 
 	for scanner.Scan() { // read one line.
 		dt := scanner.Text()
 		token := strings.Split(dt, ",")
+
 		switch token[3] {
 		case "alive":
 		case "statusList":
 
 		case "counter":
 			//			fmt.Println(token[0], token[1], token[2], token[3], token[4], token[5], token[6])
-			tm, _ := time.Parse(DateFmt, token[0]) // RFC3339Nano
+			tm, _ := time.Parse(dateFmt, token[0]) // RFC3339Nano
+			// check timestamp of data
+			if !started {
+				if (tm.Hour() > stHour || (tm.Hour() == stHour && tm.Minute() >= stMin)) &&
+					(tm.Hour() < edHour || (tm.Hour() == edHour && tm.Minute() <= edMin)) {
+					started = true
+					log.Printf("Start output! %v", tm)
+				} else {
+					continue // skip all data
+				}
+			} else {
+				if tm.Hour() > edHour || (tm.Hour() == edHour && tm.Minute() > edMin) {
+					started = false
+					log.Printf("Stop  output! %v", tm)
+					continue
+				}
+			}
+
 			tp, _ := ptypes.TimestampProto(tm)
 			evt := &pcounter.PEvent{
 				Typ:    token[3],
@@ -171,11 +216,14 @@ func sendingPCounterFile(client *sxutil.SXServiceClient) {
 		case "dwellTime":
 
 		default: // this might come first // IP address
-//			log.Printf("%s:%s",token[3], dt)
+			//			log.Printf("%s:%s",token[3], dt)
+			if !started {
+				continue
+			}
 			if pc != nil {
 				//				sendPacket(pc)
-				if len(evts) > 0  {
-					if *multi == 1{  // sending each packets
+				if len(evts) > 0 {
+					if *multi == 1 { // sending each packets
 						pc.Data = evts
 						out, _ := proto.Marshal(pc)
 						cont := pb.Content{Entity: out}
@@ -187,16 +235,20 @@ func sendingPCounterFile(client *sxutil.SXServiceClient) {
 						if nerr != nil {
 							log.Printf("Send Fail!\n", nerr)
 						} else {
-//						log.Printf("Sent OK! %#v\n", pc)
+							//						log.Printf("Sent OK! %#v\n", pc)
 						}
-					}else{ // sending multiple packets
-						mcount ++;
+						if *speed < 0 { // sleep for each packet
+							time.Sleep(time.Duration(-*speed) * time.Millisecond)
+						}
+
+					} else { // sending multiple packets
+						mcount++
 						pc.Data = evts
 						pcs = append(pcs, pc)
 						if mcount > *multi { // now sending!
 							pcss := &pcounter.PCounters{
 								Pcs: pcs,
-							}							
+							}
 							out, _ := proto.Marshal(pcss)
 							cont := pb.Content{Entity: out}
 							smo := sxutil.SupplyOpts{
@@ -210,7 +262,7 @@ func sendingPCounterFile(client *sxutil.SXServiceClient) {
 								log.Printf("Sent OK! %d bytes: %s\n", len(out), ptypes.TimestampString(pc.Ts))
 							}
 							if *speed < 0 {
-								time.Sleep(time.Duration(-*speed) *time.Millisecond)
+								time.Sleep(time.Duration(-*speed) * time.Millisecond)
 							}
 							pcs = make([]*pcounter.PCounter, 0, 1)
 							mcount = 0
@@ -221,12 +273,12 @@ func sendingPCounterFile(client *sxutil.SXServiceClient) {
 			}
 			evts = make([]*pcounter.PEvent, 0, 1)
 			pc = &pcounter.PCounter{}
-			tm, er := time.Parse(DateFmt, token[0])
+			tm, er := time.Parse(dateFmt, token[0])
 			if er != nil {
-				log.Printf("Time parse error! %v  %v",tm, er)
+				log.Printf("Time parse error! %v  %v", tm, er)
 			}
 			dur := tm.Sub(last)
-//			log.Printf("Sleep %v %v %v",dur, tm, last)
+			//			log.Printf("Sleep %v %v %v",dur, tm, last)
 			if dur.Nanoseconds() > 0 {
 				if *speed > 0 {
 					time.Sleep(time.Duration(float64(dur.Nanoseconds()) / *speed))
@@ -249,7 +301,7 @@ func sendingPCounterFile(client *sxutil.SXServiceClient) {
 
 	if pc != nil {
 		if len(evts) > 0 {
-			if *multi == 1{  // sending each packets
+			if *multi == 1 { // sending each packets
 				pc.Data = evts
 				out, _ := proto.Marshal(pc)
 				cont := pb.Content{Entity: out}
@@ -261,15 +313,15 @@ func sendingPCounterFile(client *sxutil.SXServiceClient) {
 				if nerr != nil {
 					log.Printf("Send Fail!\n", nerr)
 				} else {
-//							log.Printf("Sent OK! %#v\n", pc)
+					//							log.Printf("Sent OK! %#v\n", pc)
 				}
-			}else{ // sending multiple packets
-				mcount ++;
+			} else { // sending multiple packets
+				mcount++
 				pc.Data = evts
 				pcs = append(pcs, pc)
 				pcss := &pcounter.PCounters{
 					Pcs: pcs,
-				}							
+				}
 				out, _ := proto.Marshal(pcss)
 				cont := pb.Content{Entity: out}
 				smo := sxutil.SupplyOpts{
@@ -286,6 +338,55 @@ func sendingPCounterFile(client *sxutil.SXServiceClient) {
 		}
 	}
 }
+
+func sendAllPCounterFile(client *sxutil.SXServiceClient) {
+	// check all files in dir.
+	stMonth, stDate := getMonthDate(*startDate)
+	edMonth, edDate := getMonthDate(*endDate)
+
+	if *dir == "" {
+		log.Printf("Please specify directory")
+		data := "data"
+		dir = &data
+	}
+	files, err := ioutil.ReadDir(*dir)
+
+	if err != nil {
+		log.Printf("Can't open diretory %v", err)
+		os.Exit(1)
+	}
+	// should be sorted.
+	var ss = make(sort.StringSlice, 0, len(files))
+
+	for _, file := range files {
+		if strings.HasSuffix(file.Name(), ".csv") { // check is CSV file
+			//
+			fn := file.Name()
+			var year, month, date int
+			ct, err := fmt.Sscanf(fn, "%4d-%02d-%02d.csv", &year, &month, &date)
+			if (month > stMonth || (month == stMonth && date >= stDate)) &&
+				(month < edMonth || (month == edMonth && date <= edDate)) {
+				ss = append(ss, file.Name())
+			} else {
+				log.Printf("file: %d %v %s: %04d-%02d-%02d", ct, err, fn, year, month, date)
+			}
+		}
+	}
+
+	ss.Sort()
+
+	for _, fname := range ss {
+		dfile := path.Join(*dir, fname)
+		// check start date.
+
+		log.Printf("Sending %s", dfile)
+		sendfile = &dfile
+		sendingPCounterFile(client)
+	}
+
+}
+
+//dataServer(pc_client)
 
 func main() {
 	flag.Parse()
@@ -304,7 +405,7 @@ func main() {
 	}
 	log.Printf("Connecting SynerexServer at [%s]", srv)
 
-//	wg := sync.WaitGroup{} // for syncing other goroutines
+	//	wg := sync.WaitGroup{} // for syncing other goroutines
 
 	client := sxutil.GrpcConnectServer(srv)
 
@@ -316,16 +417,19 @@ func main() {
 
 	pc_client := sxutil.NewSXServiceClient(client, pbase.PEOPLE_COUNTER_SVC, "{Client:PcountRetrieve}")
 
-//	wg.Add(1)
+	//	wg.Add(1)
 	//    log.Print("Subscribe Supply")
 	//    go subscribePCounterSupply(pc_client)
 
-	if *sendfile != "" {
+	if *all { // send all file
+		sendAllPCounterFile(pc_client)
+	} else if *dir != "" {
+	} else if *sendfile != "" {
 		//		for { // infinite loop..
 		sendingPCounterFile(pc_client)
 		//		}
 	}
 
-//	wg.Wait()
+	//	wg.Wait()
 
 }
