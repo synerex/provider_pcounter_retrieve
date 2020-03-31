@@ -389,6 +389,7 @@ func sendAllPCounterFile(client *sxutil.SXServiceClient) {
 //dataServer(pc_client)
 
 func main() {
+	log.Printf("PCounterRetrieve(%s) built %s sha1 %s", sxutil.GitVer, sxutil.BuildTime, sxutil.Sha1Ver)
 	flag.Parse()
 	go sxutil.HandleSigInt()
 	sxutil.RegisterDeferFunction(sxutil.UnRegisterNode)
