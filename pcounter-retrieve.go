@@ -337,6 +337,26 @@ func sendingPCounterFile(client *sxutil.SXServiceClient) {
 			}
 		}
 	}
+
+	if mcount > 0 {
+		pc.Data = evts
+		pcs = append(pcs, pc)
+		pcss := &pcounter.PCounters{
+			Pcs: pcs,
+		}
+		out, _ := proto.Marshal(pcss)
+		cont := pb.Content{Entity: out}
+		smo := sxutil.SupplyOpts{
+			Name:  "PCounterMulti",
+			Cdata: &cont,
+		}
+		_, nerr := client.NotifySupply(&smo)
+		if nerr != nil {
+			log.Printf("Send Fail!\n", nerr)
+		} else {
+			log.Printf("Sent Last OK! %d bytes: %s\n", len(out), ptypes.TimestampString(pc.Ts))
+		}
+	}
 }
 
 func sendAllPCounterFile(client *sxutil.SXServiceClient) {
