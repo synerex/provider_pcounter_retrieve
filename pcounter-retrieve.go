@@ -202,13 +202,14 @@ func sendingPCounterFile(client *sxutil.SXServiceClient) {
 			}
 
 			tp, _ := ptypes.TimestampProto(tm)
+			height, _ := strconv.ParseFloat(token[6], 32)
 			evt := &pcounter.PEvent{
 				Typ:    token[3],
 				Ts:     tp,
 				Seq:    atoUint(token[2]),
 				Id:     token[4],
 				Dir:    token[5],
-				Height: atoUint(token[6]),
+				Height: float32(height),
 			}
 			evts = append(evts, evt)
 		case "fillLevel":
